@@ -72,89 +72,68 @@ class FlowLayer(nn.Module):
         return grad_x + grad_y
         
         
-    def forward(self, x):
-        residual = x[:,:,:-1]
-        x = self.bottleneck(x)
-        inp = self.norm_img(x)
-        x = inp[:,:,:-1]
-        y = inp[:,:,1:]
-        b,c,t,h,w = x.size()
-        x = x.permute(0,2,1,3,4).contiguous().view(b*t,c,h,w)
-        y = y.permute(0,2,1,3,4).contiguous().view(b*t,c,h,w)
-        
-        u1 = torch.zeros_like(x)
-        u2 = torch.zeros_like(x)
+    def forward(self, x1, x2):
+        # x1, x2: (B*T, C, H, W)
+        inp1 = self.norm_img(x1)
+        inp2 = self.norm_img(x2)
+
+        b, c, h, w = inp1.size()
+
+        u1 = torch.zeros_like(inp1)
+        u2 = torch.zeros_like(inp1)
         l_t = self.l * self.t
-        taut = self.a/self.t
+        taut = self.a / self.t
 
-        grad2_x = F.conv2d(F.pad(y,(1,1,0,0)), self.img_grad, padding=0, stride=1)#, groups=self.channels)
-        grad2_x[:,:,:,0] = 0.5 * (x[:,:,:,1] - x[:,:,:,0])
-        grad2_x[:,:,:,-1] = 0.5 * (x[:,:,:,-1] - x[:,:,:,-2])
+        grad2_x = F.conv2d(F.pad(inp2, (1, 1, 0, 0)), self.img_grad, padding=0)
+        grad2_x[:, :, :, 0] = 0.5 * (inp1[:, :, :, 1] - inp1[:, :, :, 0])
+        grad2_x[:, :, :, -1] = 0.5 * (inp1[:, :, :, -1] - inp1[:, :, :, -2])
 
-        
-        grad2_y = F.conv2d(F.pad(y, (0,0,1,1)), self.img_grad2, padding=0, stride=1)#, groups=self.channels)
-        grad2_y[:,:,0,:] = 0.5 * (x[:,:,1,:] - x[:,:,0,:])
-        grad2_y[:,:,-1,:] = 0.5 * (x[:,:,-1,:] - x[:,:,-2,:])
-        
-        p11 = torch.zeros_like(x.data)
-        p12 = torch.zeros_like(x.data)
-        p21 = torch.zeros_like(x.data)
-        p22 = torch.zeros_like(x.data)
+        grad2_y = F.conv2d(F.pad(inp2, (0, 0, 1, 1)), self.img_grad2, padding=0)
+        grad2_y[:, :, 0, :] = 0.5 * (inp1[:, :, 1, :] - inp1[:, :, 0, :])
+        grad2_y[:, :, -1, :] = 0.5 * (inp1[:, :, -1, :] - inp1[:, :, -2, :])
 
-        gsqx = grad2_x**2
-        gsqy = grad2_y**2
+        p11 = torch.zeros_like(inp1)
+        p12 = torch.zeros_like(inp1)
+        p21 = torch.zeros_like(inp1)
+        p22 = torch.zeros_like(inp1)
+
+        gsqx = grad2_x ** 2
+        gsqy = grad2_y ** 2
         grad = gsqx + gsqy + 1e-12
 
-        rho_c = y - grad2_x * u1 - grad2_y * u2 - x
-        
+        rho_c = inp2 - grad2_x * u1 - grad2_y * u2 - inp1
+
         for i in range(self.n_iter):
             rho = rho_c + grad2_x * u1 + grad2_y * u2 + 1e-12
 
-            v1 = torch.zeros_like(x.data)
-            v2 = torch.zeros_like(x.data)
-            mask1 = (rho < -l_t*grad).detach()
+            v1 = torch.zeros_like(inp1)
+            v2 = torch.zeros_like(inp1)
+            mask1 = (rho < -l_t * grad).detach()
             v1[mask1] = (l_t * grad2_x)[mask1]
             v2[mask1] = (l_t * grad2_y)[mask1]
-            
-            mask2 = (rho > l_t*grad).detach()
+
+            mask2 = (rho > l_t * grad).detach()
             v1[mask2] = (-l_t * grad2_x)[mask2]
             v2[mask2] = (-l_t * grad2_y)[mask2]
 
-            mask3 = ((mask1^1) & (mask2^1) & (grad > 1e-12)).detach()
-            v1[mask3] = ((-rho/grad) * grad2_x)[mask3]
-            v2[mask3] = ((-rho/grad) * grad2_y)[mask3]
-            del rho
-            del mask1
-            del mask2
-            del mask3
+            mask3 = ((~mask1) & (~mask2) & (grad > 1e-12)).detach()
+            v1[mask3] = ((-rho / grad) * grad2_x)[mask3]
+            v2[mask3] = ((-rho / grad) * grad2_y)[mask3]
 
             v1 += u1
             v2 += u2
 
             u1 = v1 + self.t * self.divergence(p11, p12)
             u2 = v2 + self.t * self.divergence(p21, p22)
-            del v1
-            del v2
-            u1 = u1
-            u2 = u2
 
             u1x, u1y = self.forward_grad(u1)
             u2x, u2y = self.forward_grad(u2)
-            
+
             p11 = (p11 + taut * u1x) / (1. + taut * torch.sqrt(u1x**2 + u1y**2 + 1e-12))
             p12 = (p12 + taut * u1y) / (1. + taut * torch.sqrt(u1x**2 + u1y**2 + 1e-12))
             p21 = (p21 + taut * u2x) / (1. + taut * torch.sqrt(u2x**2 + u2y**2 + 1e-12))
             p22 = (p22 + taut * u2y) / (1. + taut * torch.sqrt(u2x**2 + u2y**2 + 1e-12))
-            del u1x
-            del u1y
-            del u2x
-            del u2y
-            
 
+        return u1, u2
 
-        flow = torch.cat([u1,u2], dim=1)
-        flow = flow.view(b,t,c*2,h,w).contiguous().permute(0,2,1,3,4)
-        flow = self.unbottleneck(flow)
-        flow = self.bn(flow)
-        return F.relu(residual+flow)
         
