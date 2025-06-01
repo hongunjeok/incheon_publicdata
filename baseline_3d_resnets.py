@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
+import torch.nn.functional as F
 
 ################
 #
@@ -168,7 +169,8 @@ class ResNet(nn.Module):
         # may want to look into this for better fully-conv support (i.e., per-frame classification)
         # or (temporal) pool after classifying
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
+        x = F.adaptive_avg_pool3d(x, 1)  # → [B, C, 1, 1, 1]
+        x = x.view(x.size(0), -1)        # → [B, C]
         x = self.dropout(x)
         x = self.fc(x)
         # return BxClasses
