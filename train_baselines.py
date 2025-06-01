@@ -35,9 +35,9 @@ device = torch.device('cuda')
 #
 ##################
 if args.model == '2d':
-    model = baseline_2d_resnets.resnet34(pretrained=True, mode=args.mode, dropout=0.8, num_classes=51, input_size=112)
+    model = baseline_2d_resnets.resnet34(pretrained=True, mode=args.mode, num_classes=7, input_size=200)
 else:
-    model = baseline_3d_resnets.resnet50(pretrained=True, mode=args.mode, dropout=0.9, num_classes=51)
+    model = baseline_3d_resnets.resnet50(pretrained=True, mode=args.mode, num_classes=7)
     
 model = nn.DataParallel(model).to(device)
 batch_size = args.batch_size
@@ -61,10 +61,10 @@ elif args.system == 'k80':
     root = '/share/jproject/ajpiergi/minikinetics/'
 elif args.system == 'hmdb':
     from hmdb_dataset import HMDB as DS
-    dataseta = DS('data/hmdb/split1_train.txt', '/ssd/hmdb/', model=args.model, mode=args.mode, length=args.length)
+    dataseta = DS('/mldisk2/incheon/split3/split1_train.txt', '/mldisk2/incheon/sampling5', model=args.model, mode=args.mode, length=args.length)
     dl = torch.utils.data.DataLoader(dataseta, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-    dataset = DS('data/hmdb/split1_test.txt', '/ssd/hmdb/', model=args.model, mode=args.mode, length=args.length, c2i=dataseta.class_to_id)
+    dataset = DS('/mldisk2/incheon/split3/split1_train.txt', '/mldisk2/incheon/sampling5', model=args.model, mode=args.mode, length=args.length, c2i=dataseta.class_to_id)
     vdl = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
     dataloader = {'train':dl, 'val':vdl}
 
