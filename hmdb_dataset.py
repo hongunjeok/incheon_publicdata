@@ -3,6 +3,7 @@ import torch.utils.data as data_utl
 
 import numpy as np
 import random
+import cv2
 
 import os
 import lintel
@@ -33,14 +34,14 @@ class HMDB(data_utl.Dataset):
         cid = 0
         self.data = []
         self.model = model
-        self.size = 112
+        self.size = 200
 
         with open(split_file, 'r') as f:
             for l in f.readlines():
                 if len(l) <= 5:
                     continue
                 v,c = l.strip().split(' ')
-                v = mode+'_'+v.split('.')[0]+'.mp4'
+                v = v.strip()
                 if c not in self.class_to_id:
                     self.class_to_id[c] = cid
                     self.id_to_class.append(c)
@@ -66,17 +67,33 @@ class HMDB(data_utl.Dataset):
         w=w//2
         h=h//2
         
-        # center crop
-        if not self.random:
-            i = int(round((h-self.size)/2.))
-            j = int(round((w-self.size)/2.))
-            df = np.reshape(df, newshape=(self.length*2, h*2, w*2, 3))[::2,::2,::2,:][:, i:-i, j:-j, :]
+        # frame 크기 고정
+        th = self.size
+        tw = self.size
+
+        # reshape 먼저 (원본은 h*2, w*2 해상도 기준)
+        df = np.reshape(df, newshape=(self.length*2, h*2, w*2, 3))[::2,::2,::2,:]
+
+        # 실제 크기 측정
+        h, w = df.shape[1:3]
+
+        if h < th or w < tw:
+            # 🔧 작으면 강제로 리사이즈
+            df = np.array([cv2.resize(frame, (tw, th)) for frame in df])
         else:
-            th = self.size
-            tw = self.size
-            i = random.randint(0, h - th) if h!=th else 0
-            j = random.randint(0, w - tw) if w!=tw else 0
-            df = np.reshape(df, newshape=(self.length*2, h*2, w*2, 3))[::2,::2,::2,:][:, i:i+th, j:j+tw, :]
+            # ✅ 충분히 크면 crop 진행
+            if not self.random:
+                i = (h - th) // 2
+                j = (w - tw) // 2
+            else:
+                i = random.randint(0, h - th)
+                j = random.randint(0, w - tw)
+            df = df[:, i:i+th, j:j+tw, :]
+            
+            # 🔄 랜덤 수평 플립 (random=True일 때만 적용)
+            if self.random and random.random() < 0.5:
+                df = np.flip(df, axis=2).copy()  # axis=2 → width 방향 (가로)
+
             
         if self.mode == 'flow':
             #print(df[:,:,:,1:].mean())
